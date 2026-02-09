@@ -1,0 +1,7 @@
+# API Guard
+
+API Guard is an intelligent API rate limiting and abuse detection system built using Spring Boot.
+
+It monitors API usage, enforces request limits, detects abnormal traffic patterns, and protects backend services from misuse such as brute-force attacks and traffic abuse.
+
+This project focuses on backend system design, scalability, and security.
