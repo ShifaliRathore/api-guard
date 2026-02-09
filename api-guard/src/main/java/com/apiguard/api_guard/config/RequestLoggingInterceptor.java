@@ -1,9 +1,10 @@
 package com.apiguard.api_guard.config;
 
-
 import com.apiguard.api_guard.entity.ApiRequestLog;
+import com.apiguard.api_guard.entity.BlockedIp;
 import com.apiguard.api_guard.exception.RateLimitExceededException;
 import com.apiguard.api_guard.repository.ApiRequestLogRepository;
+import com.apiguard.api_guard.repository.BlockedIpRepository;
 import com.apiguard.api_guard.service.RateLimiterService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -11,18 +12,22 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 @Component
 public class RequestLoggingInterceptor implements HandlerInterceptor {
 
-    private final ApiRequestLogRepository repository;
+    private final ApiRequestLogRepository logRepository;
+    private final BlockedIpRepository blockedIpRepository;
     private final RateLimiterService rateLimiterService;
 
     public RequestLoggingInterceptor(
-            ApiRequestLogRepository repository,
+            ApiRequestLogRepository logRepository,
+            BlockedIpRepository blockedIpRepository,
             RateLimiterService rateLimiterService
     ) {
-        this.repository = repository;
+        this.logRepository = logRepository;
+        this.blockedIpRepository = blockedIpRepository;
         this.rateLimiterService = rateLimiterService;
     }
 
@@ -34,21 +39,47 @@ public class RequestLoggingInterceptor implements HandlerInterceptor {
     ) {
 
         String ipAddress = request.getRemoteAddr();
+        String endpoint = request.getRequestURI();
 
-        if (!rateLimiterService.isAllowed(ipAddress)) {
+        // 1️⃣ CHECK IF IP IS TEMPORARILY BLOCKED
+        Optional<BlockedIp> blockedIp =
+                blockedIpRepository.findById(ipAddress);
+
+        if (blockedIp.isPresent()
+                && blockedIp.get().getBlockedUntil().isAfter(LocalDateTime.now())) {
             throw new RateLimitExceededException(
-                    "Too many requests. Please try again later."
+                    "Your IP is temporarily blocked due to abuse"
             );
         }
 
+        // 2️⃣ CHECK RATE LIMIT
+        boolean allowed =
+                rateLimiterService.isAllowed(ipAddress, endpoint);
+
+        if (!allowed) {
+
+            // TEMP BLOCK FOR 5 MINUTES
+            BlockedIp newBlock = new BlockedIp(
+                    ipAddress,
+                    LocalDateTime.now().plusMinutes(5)
+            );
+
+            blockedIpRepository.save(newBlock);
+
+            throw new RateLimitExceededException(
+                    "Too many requests. You have been temporarily blocked."
+            );
+        }
+
+        // 3️⃣ LOG REQUEST
         ApiRequestLog log = new ApiRequestLog();
         log.setIpAddress(ipAddress);
-        log.setEndpoint(request.getRequestURI());
+        log.setEndpoint(endpoint);
         log.setHttpMethod(request.getMethod());
         log.setRequestTime(LocalDateTime.now());
 
-        repository.save(log);
+        logRepository.save(log);
 
-        return true;
+        return true; // allow request
     }
 }

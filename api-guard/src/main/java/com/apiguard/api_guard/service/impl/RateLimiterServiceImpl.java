@@ -1,5 +1,6 @@
 package com.apiguard.api_guard.service.impl;
 
+import com.apiguard.api_guard.config.EndpointLimitConfig;
 import com.apiguard.api_guard.repository.ApiRequestLogRepository;
 import com.apiguard.api_guard.service.RateLimiterService;
 import org.springframework.stereotype.Service;
@@ -19,16 +20,18 @@ public class RateLimiterServiceImpl implements RateLimiterService {
     }
 
     @Override
-    public boolean isAllowed(String ipAddress) {
-        LocalDateTime windowStart = LocalDateTime.now()
-                .minusMinutes(TIME_WINDOW_MINUTES);
+    public boolean isAllowed(String ipAddress, String endpoint) {
 
-        long requestCount =
-                repository.countByIpAddressAndRequestTimeAfter(
-                        ipAddress,
-                        windowStart
-                );
+        int maxRequests = EndpointLimitConfig.getLimit(endpoint);
 
-        return requestCount < MAX_REQUESTS;
+        LocalDateTime windowStart = LocalDateTime.now().minusMinutes(1);
+
+        long count = repository.countByIpAddressAndEndpointAndRequestTimeAfter(
+                ipAddress,
+                endpoint,
+                windowStart
+        );
+
+        return count < maxRequests;
     }
 }
