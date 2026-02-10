@@ -41,7 +41,12 @@ public class RequestLoggingInterceptor implements HandlerInterceptor {
         String ipAddress = request.getRemoteAddr();
         String endpoint = request.getRequestURI();
 
-        // 1️⃣ CHECK IF IP IS TEMPORARILY BLOCKED
+        // ✅ SKIP RATE LIMITING FOR ADMIN APIs
+        if (endpoint.startsWith("/admin")) {
+            return true;
+        }
+
+        // 1️⃣ Check if IP is already blocked
         Optional<BlockedIp> blockedIp =
                 blockedIpRepository.findById(ipAddress);
 
@@ -52,26 +57,24 @@ public class RequestLoggingInterceptor implements HandlerInterceptor {
             );
         }
 
-        // 2️⃣ CHECK RATE LIMIT
+        // 2️⃣ Apply rate limiting
         boolean allowed =
                 rateLimiterService.isAllowed(ipAddress, endpoint);
 
         if (!allowed) {
-
-            // TEMP BLOCK FOR 5 MINUTES
-            BlockedIp newBlock = new BlockedIp(
-                    ipAddress,
-                    LocalDateTime.now().plusMinutes(5)
+            blockedIpRepository.save(
+                    new BlockedIp(
+                            ipAddress,
+                            LocalDateTime.now().plusMinutes(5)
+                    )
             );
-
-            blockedIpRepository.save(newBlock);
 
             throw new RateLimitExceededException(
                     "Too many requests. You have been temporarily blocked."
             );
         }
 
-        // 3️⃣ LOG REQUEST
+        // 3️⃣ Log request
         ApiRequestLog log = new ApiRequestLog();
         log.setIpAddress(ipAddress);
         log.setEndpoint(endpoint);
@@ -80,6 +83,7 @@ public class RequestLoggingInterceptor implements HandlerInterceptor {
 
         logRepository.save(log);
 
-        return true; // allow request
+        return true;
     }
+
 }

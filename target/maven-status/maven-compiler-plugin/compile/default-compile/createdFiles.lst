@@ -1,0 +1,5 @@
+com\apiguard\api_guard\controller\TestController.class
+com\apiguard\api_guard\entity\ApiRequestLog.class
+com\apiguard\api_guard\config\WebConfig.class
+com\apiguard\api_guard\repository\ApiRequestLogRepository.class
+com\apiguard\api_guard\config\RequestLoggingInterceptor.class
