@@ -3,11 +3,13 @@ FROM maven:3.9.9-eclipse-temurin-21 AS build
 
 WORKDIR /app
 
+# Force fresh dependency download
 COPY pom.xml .
-RUN mvn dependency:go-offline
+RUN mvn -U dependency:go-offline
 
 COPY src src
 RUN mvn clean package -DskipTests
+
 
 # -------- RUN STAGE --------
 FROM eclipse-temurin:21-jre
