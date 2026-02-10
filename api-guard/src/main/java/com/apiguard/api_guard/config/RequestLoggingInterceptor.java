@@ -1,8 +1,8 @@
 package com.apiguard.api_guard.config;
 
-import com.apiguard.api_guard.ai.AbuseDetectionService;
 import com.apiguard.api_guard.ai.AbuseLevel;
 import com.apiguard.api_guard.ai.AbuseScoreResult;
+import com.apiguard.api_guard.ai.AbuseDetectionService;
 import com.apiguard.api_guard.entity.ApiRequestLog;
 import com.apiguard.api_guard.entity.BlockedIp;
 import com.apiguard.api_guard.exception.RateLimitExceededException;
@@ -15,23 +15,22 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.time.LocalDateTime;
-import java.util.Optional;
 
 @Component
 public class RequestLoggingInterceptor implements HandlerInterceptor {
 
-    private final ApiRequestLogRepository logRepository;
+    private final ApiRequestLogRepository apiRequestLogRepository;
     private final BlockedIpRepository blockedIpRepository;
     private final RateLimiterService rateLimiterService;
     private final AbuseDetectionService abuseDetectionService;
 
     public RequestLoggingInterceptor(
-            ApiRequestLogRepository logRepository,
+            ApiRequestLogRepository apiRequestLogRepository,
             BlockedIpRepository blockedIpRepository,
             RateLimiterService rateLimiterService,
             AbuseDetectionService abuseDetectionService
     ) {
-        this.logRepository = logRepository;
+        this.apiRequestLogRepository = apiRequestLogRepository;
         this.blockedIpRepository = blockedIpRepository;
         this.rateLimiterService = rateLimiterService;
         this.abuseDetectionService = abuseDetectionService;
@@ -46,51 +45,40 @@ public class RequestLoggingInterceptor implements HandlerInterceptor {
 
         String ipAddress = request.getRemoteAddr();
         String endpoint = request.getRequestURI();
-
-        // ✅ SKIP RATE LIMITING FOR ADMIN APIs
-        if (endpoint.startsWith("/admin")) {
-            return true;
-        }
+        String method = request.getMethod();
 
         // 1️⃣ Check if IP is already blocked
-        Optional<BlockedIp> blockedIp =
-                blockedIpRepository.findById(ipAddress);
+        blockedIpRepository.findById(ipAddress).ifPresent(blockedIp -> {
+            if (blockedIp.getBlockedUntil().isAfter(LocalDateTime.now())) {
+                throw new RateLimitExceededException(
+                        "IP is temporarily blocked due to malicious activity"
+                );
+            }
+        });
 
-        if (blockedIp.isPresent()
-                && blockedIp.get().getBlockedUntil().isAfter(LocalDateTime.now())) {
-            throw new RateLimitExceededException(
-                    "Your IP is temporarily blocked due to abuse"
-            );
-        }
-
-        // 2️⃣ Apply rate limiting
-        boolean allowed =
-                rateLimiterService.isAllowed(ipAddress, endpoint);
-
-        if (!allowed) {
-            blockedIpRepository.save(
-                    new BlockedIp(
-                            ipAddress,
-                            LocalDateTime.now().plusMinutes(5)
-                    )
-            );
-
-            throw new RateLimitExceededException(
-                    "Too many requests. You have been temporarily blocked."
-            );
-        }
-        // 1️⃣ AI Abuse Analysis FIRST
+        // 2️⃣ AI Abuse Scoring
         AbuseScoreResult result =
                 abuseDetectionService.analyze(ipAddress, endpoint);
 
-// Optional: log behavior (VERY IMPORTANT for understanding)
+        // Console log for understanding
         System.out.println(
                 "IP: " + ipAddress +
                         " | Score: " + result.getScore() +
                         " | Level: " + result.getLevel()
         );
 
-// 2️⃣ If MALICIOUS → BLOCK
+        // 3️⃣ Save request log WITH abuse level
+        ApiRequestLog log = new ApiRequestLog();
+        log.setEndpoint(endpoint);
+        log.setHttpMethod(method);
+        log.setIpAddress(ipAddress);
+        log.setRequestTime(LocalDateTime.now());
+        log.setAbuseLevel(result.getLevel().name());
+
+        // ALWAYS save request first
+        apiRequestLogRepository.save(log);
+
+// THEN decide blocking
         if (result.getLevel() == AbuseLevel.MALICIOUS) {
 
             blockedIpRepository.save(
@@ -101,28 +89,14 @@ public class RequestLoggingInterceptor implements HandlerInterceptor {
             );
 
             throw new RateLimitExceededException(
-                    "Malicious behavior detected. IP blocked."
+                    "Malicious activity detected. IP blocked."
             );
         }
 
-// 3️⃣ Rate limiting ONLY for NORMAL / SUSPICIOUS
-        if (!rateLimiterService.isAllowed(ipAddress, endpoint)) {
-            // allow but mark as suspicious (no block yet)
-            System.out.println("Rate limit crossed but not malicious yet");
-        }
 
+        // 5️⃣ Soft rate limiting (do not block yet)
+        rateLimiterService.isAllowed(ipAddress, endpoint);
 
-
-        // 3️⃣ Log request
-        ApiRequestLog log = new ApiRequestLog();
-        log.setIpAddress(ipAddress);
-        log.setEndpoint(endpoint);
-        log.setHttpMethod(request.getMethod());
-        log.setRequestTime(LocalDateTime.now());
-
-        logRepository.save(log);
-
-        return true;
+        return true; // allow request
     }
-
 }
