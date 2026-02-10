@@ -1,5 +1,6 @@
 package com.apiguard.api_guard.controller;
 
+/* 
 
 import com.apiguard.api_guard.entity.BlockedIp;
 import com.apiguard.api_guard.repository.ApiRequestLogRepository;
@@ -53,5 +54,42 @@ public class AdminController {
                         log -> log.getEndpoint(),
                         Collectors.counting()
                 ));
+    }
+}
+
+*/
+
+import com.apiguard.api_guard.entity.ApiRequestLog;
+import com.apiguard.api_guard.entity.BlockedIp;
+import com.apiguard.api_guard.repository.ApiRequestLogRepository;
+import com.apiguard.api_guard.repository.BlockedIpRepository;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/admin")
+@CrossOrigin(origins = "*")
+public class AdminController {
+
+    private final ApiRequestLogRepository logRepository;
+    private final BlockedIpRepository blockedIpRepository;
+
+    public AdminController(
+            ApiRequestLogRepository logRepository,
+            BlockedIpRepository blockedIpRepository
+    ) {
+        this.logRepository = logRepository;
+        this.blockedIpRepository = blockedIpRepository;
+    }
+
+    @GetMapping("/logs")
+    public List<ApiRequestLog> getAllLogs() {
+        return logRepository.findAll();
+    }
+
+    @GetMapping("/blocked-ips")
+    public List<BlockedIp> getBlockedIps() {
+        return blockedIpRepository.findAll();
     }
 }
