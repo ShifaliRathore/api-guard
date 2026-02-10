@@ -1,25 +1,21 @@
-# Use official Java 21 image
-FROM eclipse-temurin:21-jdk
+# -------- BUILD STAGE --------
+FROM maven:3.9.9-eclipse-temurin-21 AS build
 
-# Set working directory inside container
 WORKDIR /app
 
-# Copy Maven wrapper and pom.xml
 COPY pom.xml .
-COPY .mvn .mvn
-COPY mvnw .
+RUN mvn dependency:go-offline
 
-# Download dependencies (cache layer)
-RUN ./mvnw dependency:go-offline
-
-# Copy source code
 COPY src src
+RUN mvn clean package -DskipTests
 
-# Build the application
-RUN ./mvnw clean package -DskipTests
+# -------- RUN STAGE --------
+FROM eclipse-temurin:21-jre
 
-# Expose port
+WORKDIR /app
+
+COPY --from=build /app/target/api-guard-0.0.1-SNAPSHOT.jar app.jar
+
 EXPOSE 8080
 
-# Run the application
-CMD ["java", "-jar", "target/api-guard-0.0.1-SNAPSHOT.jar"]
+ENTRYPOINT ["java", "-jar", "app.jar"]
