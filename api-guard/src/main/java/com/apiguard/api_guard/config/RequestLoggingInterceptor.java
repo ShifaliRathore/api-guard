@@ -1,5 +1,8 @@
 package com.apiguard.api_guard.config;
 
+import com.apiguard.api_guard.ai.AbuseDetectionService;
+import com.apiguard.api_guard.ai.AbuseLevel;
+import com.apiguard.api_guard.ai.AbuseScoreResult;
 import com.apiguard.api_guard.entity.ApiRequestLog;
 import com.apiguard.api_guard.entity.BlockedIp;
 import com.apiguard.api_guard.exception.RateLimitExceededException;
@@ -20,15 +23,18 @@ public class RequestLoggingInterceptor implements HandlerInterceptor {
     private final ApiRequestLogRepository logRepository;
     private final BlockedIpRepository blockedIpRepository;
     private final RateLimiterService rateLimiterService;
+    private final AbuseDetectionService abuseDetectionService;
 
     public RequestLoggingInterceptor(
             ApiRequestLogRepository logRepository,
             BlockedIpRepository blockedIpRepository,
-            RateLimiterService rateLimiterService
+            RateLimiterService rateLimiterService,
+            AbuseDetectionService abuseDetectionService
     ) {
         this.logRepository = logRepository;
         this.blockedIpRepository = blockedIpRepository;
         this.rateLimiterService = rateLimiterService;
+        this.abuseDetectionService = abuseDetectionService;
     }
 
     @Override
@@ -73,6 +79,39 @@ public class RequestLoggingInterceptor implements HandlerInterceptor {
                     "Too many requests. You have been temporarily blocked."
             );
         }
+        // 1️⃣ AI Abuse Analysis FIRST
+        AbuseScoreResult result =
+                abuseDetectionService.analyze(ipAddress, endpoint);
+
+// Optional: log behavior (VERY IMPORTANT for understanding)
+        System.out.println(
+                "IP: " + ipAddress +
+                        " | Score: " + result.getScore() +
+                        " | Level: " + result.getLevel()
+        );
+
+// 2️⃣ If MALICIOUS → BLOCK
+        if (result.getLevel() == AbuseLevel.MALICIOUS) {
+
+            blockedIpRepository.save(
+                    new BlockedIp(
+                            ipAddress,
+                            LocalDateTime.now().plusMinutes(10)
+                    )
+            );
+
+            throw new RateLimitExceededException(
+                    "Malicious behavior detected. IP blocked."
+            );
+        }
+
+// 3️⃣ Rate limiting ONLY for NORMAL / SUSPICIOUS
+        if (!rateLimiterService.isAllowed(ipAddress, endpoint)) {
+            // allow but mark as suspicious (no block yet)
+            System.out.println("Rate limit crossed but not malicious yet");
+        }
+
+
 
         // 3️⃣ Log request
         ApiRequestLog log = new ApiRequestLog();

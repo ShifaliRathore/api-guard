@@ -11,4 +11,6 @@ public interface ApiRequestLogRepository extends JpaRepository<ApiRequestLog, Lo
             LocalDateTime time
     );
 
+    long countByIpAddress(String ipAddress);
+
 }
